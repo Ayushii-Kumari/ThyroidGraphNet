@@ -13,6 +13,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Docker Hub secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "DOCKERHUB_USERNAME is MISSING"
+            exit 1
+          else
+            echo "DOCKERHUB_USERNAME is available"
+          fi
+
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "DOCKERHUB_TOKEN is MISSING"
+            exit 1
+          else
+            echo "DOCKERHUB_TOKEN is available"
+          fi
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
