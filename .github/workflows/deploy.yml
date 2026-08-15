@@ -40,34 +40,25 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
 
 
-      # 5. Install Render CLI
+            # 5. Install Render CLI
       - name: Install Render CLI
         run: |
           curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-
-      # 6. Check Render CLI
-      - name: Check Render CLI
-        run: |
-          render --version
-
-
-      # 7. Set Render workspace
-      - name: Set Render workspace
-        env:
-          RENDER_WORKSPACE_ID: ${{ secrets.RENDER_WORKSPACE_ID }}
-        run: |
-          render workspace set "$RENDER_WORKSPACE_ID"
-
-
-      # 8. Deploy existing Render service
-      - name: Deploy to Render
+      # 6. Authenticate with Render
+      - name: Login to Render
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          render login "$RENDER_API_KEY"
+
+      # 7. Deploy existing Render service
+      - name: Deploy to Render
+        env:
           DOCKER_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
         run: |
-          echo "Deploying Docker image:"
+          echo "Deploying image:"
           echo "$DOCKER_IMAGE"
 
           render deploys create \
@@ -75,8 +66,7 @@ jobs:
             --image "$DOCKER_IMAGE" \
             --confirm
 
-
-      # 9. Show public URL
+      # 8. Show public URL
       - name: Show public URL
         run: |
           echo "=========================================="
