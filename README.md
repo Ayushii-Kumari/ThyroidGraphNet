@@ -12,24 +12,52 @@ The proposed system combines local visual features, global transformer features,
 
 ```text
 Thyroid Ultrasound Image
-          ↓
-     Preprocessing
-          ↓
- ┌────────┴─────────┐
- ↓                  ↓
-ConvNeXt        Swin Transformer
-(CNN)            (Transformer)
- ↓                  ↓
- └────────┬─────────┘
-          ↓
-    Feature Fusion
-          ↓
- Multi-Head GATv2
-          ↓
-Uncertainty-Guided
-    Prediction
-          ↓
-    Classification
+          │
+          ▼
+    Preprocessing
+          │
+          ▼
+ConvNeXt Feature Extraction
+          │
+          ▼
+  Uncertainty Estimation
+          │
+      ┌───┴───┐
+      │       │
+    Low U   High U
+      │       │
+      ▼       ▼
+   CNN Path   Swin Transformer
+      │       │
+      └───┬───┘
+          │
+          ▼
+     Feature Fusion
+          │
+          ▼
+   Graph Construction
+          │
+          ▼
+  Uncertainty Estimation
+          │
+      ┌───┴───┐
+      │       │
+    Low U   High U
+      │       │
+      ▼       ▼
+ Sparse Graph  Dense Graph
+      │       │
+      └───┬───┘
+          │
+          ▼
+    Multi-Head GATv2
+          │
+          ▼
+    Softmax Classifier
+          │
+      ┌───┴───┐
+      ▼       ▼
+   Benign  Malignant
 ```
 
 ---
@@ -199,11 +227,13 @@ Deployment
 
 ## 🔗 Public Resources
 
-* **GitHub:** https://github.com/Ayushii-Kumari/ThyroidGraphNet
-* **Dataset:** [Public Dataset URL]
-* **Research Reference:** [Paper URL]
-* **PyTorch:** https://pytorch.org/
-* **Docker:** https://www.docker.com/
+* **GitHub Repository:** https://github.com/Ayushii-Kumari/ThyroidGraphNet
+* **Dataset:** TN5000 — An Ultrasound Image Dataset for Thyroid Nodule Detection and Classification
+  https://figshare.com/s/cb6a67f17c04b29e7edd
+* **Research Paper:** TN5000: An Ultrasound Image Dataset for Thyroid Nodule Detection and Classification
+  https://www.nature.com/articles/s41597-025-05757-4
+* **Docker Hub:** https://hub.docker.com/repository/docker/ayushiikumari/thyroid-graph-net/general
+* **GitHub Actions CI/CD:** https://github.com/Ayushii-Kumari/ThyroidGraphNet/actions
 * **GitHub Actions:** https://github.com/features/actions
 
 ---
