@@ -1,0 +1,13 @@
+{
+    "dataset": "TN5000 Test",
+    "n_samples": 1000,
+    "accuracy": 0.887,
+    "precision": 0.9077,
+    "sensitivity": 0.9412,
+    "specificity": 0.7398,
+    "f1_score": 0.9241,
+    "roc_auc": 0.9432,
+    "pr_auc": 0.9737,
+    "mean_u1": 0.0766,
+    "mean_u2": 0.0755
+}
