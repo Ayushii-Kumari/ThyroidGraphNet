@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build Push and Deploy
 
 on:
   push:
@@ -6,23 +6,119 @@ on:
       - main
 
 jobs:
-  docker:
+  build-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Get source code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 3. Build Docker image
       - name: Build Docker image
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest .
+          docker build \
+            --platform linux/amd64 \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest \
+            .
 
+      # 4. Push Docker image to Docker Hub
       - name: Push Docker image
         run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
+          docker push \
+            ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
+
+      # 5. Install Render CLI
+      - name: Install Render CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | bash
+          echo "$HOME/.render/bin" >> $GITHUB_PATH
+
+      # 6. Check Render CLI
+      - name: Check Render CLI
+        run: |
+          render --version
+
+      # 7. Check whether Render service already exists
+      - name: Check Render service
+        id: render_check
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          SERVICE=$(render services -o json | jq -r '.[] | select(.name == "thyroidnet") | .id' | head -n 1)
+
+          if [ -n "$SERVICE" ]; then
+            echo "Service already exists: $SERVICE"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "service_id=$SERVICE" >> "$GITHUB_OUTPUT"
+          else
+            echo "Render service does not exist."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 8. Create Render service first time
+      - name: Create Render service
+        if: steps.render_check.outputs.exists == 'false'
+        id: render_create
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          DOCKER_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
+        run: |
+          render services create \
+            --name thyroidnet \
+            --type web_service \
+            --image "$DOCKER_IMAGE" \
+            --plan free \
+            --region oregon \
+            --output json \
+            --confirm > render-service.json
+
+          cat render-service.json
+
+          SERVICE_ID=$(jq -r '.id' render-service.json)
+
+          echo "service_id=$SERVICE_ID" >> "$GITHUB_OUTPUT"
+
+      # 9. Deploy existing Render service
+      - name: Deploy Render service
+        if: steps.render_check.outputs.exists == 'true'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          DOCKER_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
+        run: |
+          render deploys create \
+            "${{ steps.render_check.outputs.service_id }}" \
+            --image "$DOCKER_IMAGE" \
+            --confirm
+
+      # 10. Get public Render URL
+      - name: Get Render URL
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          if [ "${{ steps.render_check.outputs.exists }}" = "true" ]; then
+            SERVICE_ID="${{ steps.render_check.outputs.service_id }}"
+          else
+            SERVICE_ID="${{ steps.render_create.outputs.service_id }}"
+          fi
+
+          echo "Render Service ID: $SERVICE_ID"
+
+          render services -o json > services.json
+
+          URL=$(jq -r --arg ID "$SERVICE_ID" \
+            '.[] | select(.id == $ID) | .url' services.json)
+
+          echo "=========================================="
+          echo "PUBLIC WEBSITE:"
+          echo "$URL"
+          echo "=========================================="
+
+          echo "RENDER_URL=$URL" >> "$GITHUB_ENV"
