@@ -16,13 +16,19 @@ st.set_page_config(
     layout="wide"
 )
 
+
 st.markdown(
     """
     <style>
+
     .prediction-card {
         padding: 1.5rem;
         border-radius: 16px;
-        background: linear-gradient(135deg, #1a1f2e 0%, #232838 100%);
+        background: linear-gradient(
+            135deg,
+            #1a1f2e 0%,
+            #232838 100%
+        );
         border: 1px solid #2d3348;
         margin-bottom: 1rem;
     }
@@ -77,17 +83,17 @@ st.markdown(
         background-color: #1a1f2e;
         border: 1px solid #2d3348;
     }
+
     </style>
     """,
     unsafe_allow_html=True
 )
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading ThyroidNet model...")
 def load_model():
 
     cfg = Config()
-
     device = torch.device(cfg.DEVICE)
 
     model_path = os.path.join(
@@ -100,37 +106,39 @@ def load_model():
         "support_bank.pt"
     )
 
-    if not os.path.exists(model_path):
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            f"Model not found: {model_path}"
-        )
-
-    if not os.path.exists(support_bank_path):
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            f"Support bank not found: {support_bank_path}"
-        )
-
     try:
 
-        model = ThyroidNet(cfg).to(device)
+        if not os.path.exists(model_path):
+
+            raise FileNotFoundError(
+                f"Model not found: {model_path}"
+            )
+
+        if not os.path.exists(support_bank_path):
+
+            raise FileNotFoundError(
+                f"Support bank not found: {support_bank_path}"
+            )
+
+        model = ThyroidNet(
+            cfg
+        ).to(device)
 
         checkpoint = torch.load(
             model_path,
             map_location=device
         )
 
-        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        if (
+            isinstance(checkpoint, dict)
+            and "state_dict" in checkpoint
+        ):
+
             checkpoint = checkpoint["state_dict"]
 
-        model.load_state_dict(checkpoint)
+        model.load_state_dict(
+            checkpoint
+        )
 
         model.eval()
 
@@ -139,7 +147,15 @@ def load_model():
             map_location=device
         )
 
-        support_feats = bank["features"].to(device)
+        if "features" not in bank:
+
+            raise KeyError(
+                "The support bank does not contain 'features'."
+            )
+
+        support_feats = bank[
+            "features"
+        ].to(device)
 
         return (
             model,
@@ -172,21 +188,36 @@ def load_model():
 def uncertainty_label(u):
 
     if u < 0.15:
-        return "LOW UNCERTAINTY", "#21c55d"
 
-    if u < 0.35:
-        return "MODERATE UNCERTAINTY", "#f5a623"
+        return (
+            "LOW UNCERTAINTY",
+            "#21c55d"
+        )
 
-    return "HIGH UNCERTAINTY", "#ff4b4b"
+    elif u < 0.35:
+
+        return (
+            "MODERATE UNCERTAINTY",
+            "#f5a623"
+        )
+
+    else:
+
+        return (
+            "HIGH UNCERTAINTY",
+            "#ff4b4b"
+        )
 
 
 def prediction_confidence(probabilities):
 
     predicted_index = probabilities.argmax()
 
-    return float(
-        probabilities[predicted_index]
-    ) * 100
+    return (
+        float(
+            probabilities[predicted_index]
+        ) * 100
+    )
 
 
 st.title(
@@ -201,7 +232,9 @@ st.caption(
 
 with st.sidebar:
 
-    st.header("About this system")
+    st.header(
+        "About this system"
+    )
 
     st.markdown(
         """
@@ -251,10 +284,13 @@ with tab1:
         )
 
         if model_error:
-            st.code(model_error)
+
+            st.code(
+                model_error
+            )
 
         st.info(
-            "The Docker image does not contain the trained model files."
+            "The model files must exist inside the Docker image."
         )
 
         st.code(
@@ -341,9 +377,12 @@ with tab1:
             )
 
             if predicted_index == 1:
+
                 prediction = "MALIGNANT"
                 badge_class = "badge-malignant"
+
             else:
+
                 prediction = "BENIGN"
                 badge_class = "badge-benign"
 
@@ -494,7 +533,8 @@ with tab1:
                 ):
 
                     st.write(
-                        f"**Prediction:** {prediction}"
+                        f"**Prediction:** "
+                        f"{prediction}"
                     )
 
                     st.write(
@@ -503,7 +543,8 @@ with tab1:
                     )
 
                     st.write(
-                        f"**CNN–Transformer fusion uncertainty (U₁):** "
+                        f"**CNN–Transformer fusion "
+                        f"uncertainty (U₁):** "
                         f"{u1:.6f}"
                     )
 
@@ -513,11 +554,13 @@ with tab1:
                     )
 
                     st.write(
-                        f"**Graph type:** {graph_type}"
+                        f"**Graph type:** "
+                        f"{graph_type}"
                     )
 
                     st.write(
-                        f"**Graph neighbours (k):** {k_value}"
+                        f"**Graph neighbours (k):** "
+                        f"{k_value}"
                     )
 
                     st.write(
@@ -555,7 +598,9 @@ with tab1:
                         f"{tensor.std().item():.4f}"
                     )
 
-                    st.write("**Raw logits:**")
+                    st.write(
+                        "**Raw logits:**"
+                    )
 
                     st.code(
                         str(
@@ -574,13 +619,17 @@ with tab2:
         "metrics.json"
     )
 
-    if not os.path.exists(metrics_path):
+    if not os.path.exists(
+        metrics_path
+    ):
 
         st.warning(
             "TN5000 evaluation results were not found."
         )
 
-        st.code(metrics_path)
+        st.code(
+            metrics_path
+        )
 
     else:
 
@@ -668,7 +717,8 @@ with tab2:
             if "n_samples" in metrics:
 
                 st.caption(
-                    f"Test samples: {metrics['n_samples']}"
+                    f"Test samples: "
+                    f"{metrics['n_samples']}"
                 )
 
             st.divider()
@@ -686,7 +736,10 @@ with tab2:
 
             img_cols = st.columns(2)
 
-            for i, (title, filename) in enumerate(
+            for i, (
+                title,
+                filename
+            ) in enumerate(
                 img_files.items()
             ):
 
@@ -701,7 +754,9 @@ with tab2:
                         f"### {title}"
                     )
 
-                    if os.path.exists(file_path):
+                    if os.path.exists(
+                        file_path
+                    ):
 
                         st.image(
                             file_path,
@@ -720,7 +775,9 @@ with tab2:
                 "Could not read the evaluation results."
             )
 
-            st.code(str(e))
+            st.code(
+                str(e)
+            )
 
 
 st.divider()
@@ -735,4 +792,3 @@ st.caption(
     "Research/educational prototype — "
     "not a diagnostic device."
 )
-
