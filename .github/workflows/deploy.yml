@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Get source code
+      # 1. Checkout GitHub repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Log in to Docker Hub
-      - name: Log in to Docker Hub
+      # 2. Login to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -39,14 +39,22 @@ jobs:
       - name: Install Render CLI
         run: |
           curl -fsSL https://raw.githubusercontent.com/render-oss/cli/main/bin/install.sh | bash
-          echo "$HOME/.render/bin" >> $GITHUB_PATH
+          echo "$HOME/.render/bin" >> "$GITHUB_PATH"
 
       # 6. Check Render CLI
       - name: Check Render CLI
         run: |
           render --version
 
-      # 7. Check whether Render service already exists
+      # 7. Set Render workspace
+      - name: Set Render workspace
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ secrets.RENDER_WORKSPACE_ID }}
+        run: |
+          render workspace set "$RENDER_WORKSPACE_ID"
+
+      # 8. Check whether Render service already exists
       - name: Check Render service
         id: render_check
         env:
@@ -55,7 +63,7 @@ jobs:
           SERVICE=$(render services -o json | jq -r '.[] | select(.name == "thyroidnet") | .id' | head -n 1)
 
           if [ -n "$SERVICE" ]; then
-            echo "Service already exists: $SERVICE"
+            echo "Render service already exists: $SERVICE"
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "service_id=$SERVICE" >> "$GITHUB_OUTPUT"
           else
@@ -63,7 +71,7 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # 8. Create Render service first time
+      # 9. Create Render service if it doesn't exist
       - name: Create Render service
         if: steps.render_check.outputs.exists == 'false'
         id: render_create
@@ -86,7 +94,7 @@ jobs:
 
           echo "service_id=$SERVICE_ID" >> "$GITHUB_OUTPUT"
 
-      # 9. Deploy existing Render service
+      # 10. Deploy new image to existing Render service
       - name: Deploy Render service
         if: steps.render_check.outputs.exists == 'true'
         env:
@@ -98,7 +106,7 @@ jobs:
             --image "$DOCKER_IMAGE" \
             --confirm
 
-      # 10. Get public Render URL
+      # 11. Show Render service URL
       - name: Get Render URL
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
@@ -117,7 +125,7 @@ jobs:
             '.[] | select(.id == $ID) | .url' services.json)
 
           echo "=========================================="
-          echo "PUBLIC WEBSITE:"
+          echo "THYROIDNET PUBLIC URL"
           echo "$URL"
           echo "=========================================="
 
