@@ -21,6 +21,7 @@ myenv
 .vscode
 .idea
 .streamlit
+models/
 
 .DS_Store
 Thumbs.db
