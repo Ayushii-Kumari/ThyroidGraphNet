@@ -19,14 +19,9 @@ COPY evaluate.py .
 COPY test.py .
 
 COPY utils ./utils
+COPY models ./models
 COPY results ./results
-
-RUN mkdir -p models && \
-    python -c "import urllib.request; urllib.request.urlretrieve('https://huggingface.co/AyushiiKumarii/thyroidnet/resolve/main/thyroidnet_best.pth', 'models/thyroidnet_best.pth')" && \
-    python -c "import urllib.request; urllib.request.urlretrieve('https://huggingface.co/AyushiiKumarii/thyroidnet/resolve/main/support_bank.pt', 'models/support_bank.pt')"
 
 EXPOSE 8501
 
-EXPOSE 10000
-
-CMD ["sh", "-c", "streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-10000}"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.fileWatcherType=none"]
