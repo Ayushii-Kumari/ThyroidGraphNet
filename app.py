@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 import torch
 import streamlit as st
@@ -93,7 +94,7 @@ st.markdown(
 
 
 # ============================================================
-# HUGGING FACE CONFIGURATION
+# CONSTANTS
 # ============================================================
 
 HF_REPO_ID = "AyushiiKumarii/thyroidnet"
@@ -103,244 +104,305 @@ SUPPORT_FILENAME = "support_bank.pt"
 
 
 # ============================================================
-# DOWNLOAD MODEL FROM HUGGING FACE
+# CREATE LOCAL MODEL DIRECTORY
 # ============================================================
 
-@st.cache_resource
-def download_model_files():
+cfg = Config()
 
-    try:
+MODEL_DIR = Path(cfg.MODEL_DIR)
 
-        st.info(
-            "Downloading trained model from Hugging Face..."
-        )
+MODEL_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
-        model_path = hf_hub_download(
-            repo_id=HF_REPO_ID,
-            filename=MODEL_FILENAME
-        )
-
-        support_bank_path = hf_hub_download(
-            repo_id=HF_REPO_ID,
-            filename=SUPPORT_FILENAME
-        )
-
-        print("=" * 60)
-        print("HUGGING FACE MODEL DOWNLOAD")
-        print("=" * 60)
-
-        print(
-            f"Model path: {model_path}"
-        )
-
-        print(
-            f"Support bank path: {support_bank_path}"
-        )
-
-        print(
-            f"Model exists: "
-            f"{os.path.exists(model_path)}"
-        )
-
-        print(
-            f"Support bank exists: "
-            f"{os.path.exists(support_bank_path)}"
-        )
-
-        print("=" * 60)
-
-        return (
-            model_path,
-            support_bank_path,
-            None
-        )
-
-    except Exception as e:
-
-        print(
-            "HUGGING FACE DOWNLOAD ERROR:"
-        )
-
-        print(
-            str(e)
-        )
-
-        return (
-            None,
-            None,
-            str(e)
-        )
+MODEL_PATH = MODEL_DIR / MODEL_FILENAME
+SUPPORT_BANK_PATH = MODEL_DIR / SUPPORT_FILENAME
 
 
 # ============================================================
-# LOAD MODEL
+# DOWNLOAD FILE FROM HUGGING FACE ONLY IF REQUIRED
+# ============================================================
+
+def ensure_model_files():
+    """
+    Ensure model files exist locally.
+
+    Files are downloaded from Hugging Face ONLY when they
+    do not already exist locally.
+
+    This means Streamlit reruns will NOT download the files again.
+    """
+
+    hf_token = os.getenv("HF_TOKEN")
+
+    errors = []
+
+    # --------------------------------------------------------
+    # MODEL
+    # --------------------------------------------------------
+
+    if MODEL_PATH.exists():
+
+        print(
+            f"[MODEL] Already exists: {MODEL_PATH}"
+        )
+
+    else:
+
+        print(
+            "[MODEL] Model not found locally."
+        )
+
+        print(
+            "[MODEL] Downloading from Hugging Face..."
+        )
+
+        try:
+
+            downloaded_model = hf_hub_download(
+                repo_id=HF_REPO_ID,
+                filename=MODEL_FILENAME,
+                local_dir=str(MODEL_DIR),
+                token=hf_token,
+                resume_download=True
+            )
+
+            print(
+                f"[MODEL] Download completed: "
+                f"{downloaded_model}"
+            )
+
+        except Exception as e:
+
+            error_message = (
+                "Failed to download model from "
+                f"Hugging Face: {e}"
+            )
+
+            print(error_message)
+
+            errors.append(
+                error_message
+            )
+
+
+    # --------------------------------------------------------
+    # SUPPORT BANK
+    # --------------------------------------------------------
+
+    if SUPPORT_BANK_PATH.exists():
+
+        print(
+            f"[SUPPORT] Already exists: "
+            f"{SUPPORT_BANK_PATH}"
+        )
+
+    else:
+
+        print(
+            "[SUPPORT] Support bank not found locally."
+        )
+
+        print(
+            "[SUPPORT] Downloading from Hugging Face..."
+        )
+
+        try:
+
+            downloaded_support = hf_hub_download(
+                repo_id=HF_REPO_ID,
+                filename=SUPPORT_FILENAME,
+                local_dir=str(MODEL_DIR),
+                token=hf_token,
+                resume_download=True
+            )
+
+            print(
+                f"[SUPPORT] Download completed: "
+                f"{downloaded_support}"
+            )
+
+        except Exception as e:
+
+            error_message = (
+                "Failed to download support bank from "
+                f"Hugging Face: {e}"
+            )
+
+            print(error_message)
+
+            errors.append(
+                error_message
+            )
+
+
+    # --------------------------------------------------------
+    # RETURN
+    # --------------------------------------------------------
+
+    if errors:
+
+        return False, errors
+
+    return True, []
+
+
+# ============================================================
+# MODEL LOADING
 # ============================================================
 
 @st.cache_resource
 def load_model():
 
-    cfg = Config()
+    print("=" * 70)
+    print("THYROIDNET MODEL LOADING")
+    print("=" * 70)
 
     device = torch.device(
         cfg.DEVICE
     )
 
-    print("=" * 60)
-    print("MODEL LOADING")
-    print("=" * 60)
-
     print(
         f"Device: {device}"
     )
 
-    # --------------------------------------------------------
-    # Download files from Hugging Face
-    # --------------------------------------------------------
-
-    model_path, support_bank_path, download_error = (
-        download_model_files()
-    )
-
-    # --------------------------------------------------------
-    # Check download
-    # --------------------------------------------------------
-
-    if download_error is not None:
-
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            "Could not download model files from Hugging Face:\n"
-            + download_error
-        )
-
-    if model_path is None:
-
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            "Model file could not be downloaded."
-        )
-
-    if support_bank_path is None:
-
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            "Support bank could not be downloaded."
-        )
-
-    # --------------------------------------------------------
-    # Check files
-    # --------------------------------------------------------
-
     print(
-        f"Model exists: "
-        f"{os.path.exists(model_path)}"
+        f"Model path: {MODEL_PATH}"
     )
 
     print(
-        f"Support bank exists: "
-        f"{os.path.exists(support_bank_path)}"
+        f"Support bank path: {SUPPORT_BANK_PATH}"
     )
 
-    if not os.path.exists(model_path):
+    # --------------------------------------------------------
+    # ENSURE FILES
+    # --------------------------------------------------------
+
+    success, errors = ensure_model_files()
+
+    if not success:
 
         return (
             None,
             None,
             cfg,
             device,
-            f"Model not found: {model_path}"
+            "\n".join(errors)
         )
 
-    if not os.path.exists(support_bank_path):
-
-        return (
-            None,
-            None,
-            cfg,
-            device,
-            f"Support bank not found: {support_bank_path}"
-        )
 
     # --------------------------------------------------------
-    # Load model
+    # VERIFY MODEL
+    # --------------------------------------------------------
+
+    if not MODEL_PATH.exists():
+
+        return (
+            None,
+            None,
+            cfg,
+            device,
+            f"Model not found: {MODEL_PATH}"
+        )
+
+
+    # --------------------------------------------------------
+    # VERIFY SUPPORT BANK
+    # --------------------------------------------------------
+
+    if not SUPPORT_BANK_PATH.exists():
+
+        return (
+            None,
+            None,
+            cfg,
+            device,
+            f"Support bank not found: "
+            f"{SUPPORT_BANK_PATH}"
+        )
+
+
+    # --------------------------------------------------------
+    # LOAD MODEL
     # --------------------------------------------------------
 
     try:
 
         print(
-            "Creating ThyroidNet..."
+            "[MODEL] Creating ThyroidNet..."
         )
 
         model = ThyroidNet(
             cfg
         ).to(device)
 
+
         print(
-            "Loading checkpoint..."
+            "[MODEL] Loading checkpoint..."
         )
 
         checkpoint = torch.load(
-            model_path,
-            map_location=device
+            MODEL_PATH,
+            map_location=device,
+            weights_only=True
         )
 
+
         # ----------------------------------------------------
-        # Handle different checkpoint formats
+        # HANDLE DIFFERENT CHECKPOINT FORMATS
         # ----------------------------------------------------
 
         if isinstance(
             checkpoint,
             dict
-        ) and "state_dict" in checkpoint:
+        ):
 
-            state_dict = checkpoint[
-                "state_dict"
-            ]
+            if "state_dict" in checkpoint:
 
-        elif isinstance(
-            checkpoint,
-            dict
-        ) and "model_state_dict" in checkpoint:
+                state_dict = checkpoint[
+                    "state_dict"
+                ]
 
-            state_dict = checkpoint[
-                "model_state_dict"
-            ]
+            elif "model_state_dict" in checkpoint:
+
+                state_dict = checkpoint[
+                    "model_state_dict"
+                ]
+
+            else:
+
+                state_dict = checkpoint
 
         else:
 
             state_dict = checkpoint
 
+
         # ----------------------------------------------------
-        # Remove DataParallel prefix if present
+        # REMOVE "module." PREFIX IF PRESENT
         # ----------------------------------------------------
 
         cleaned_state_dict = {}
 
         for key, value in state_dict.items():
 
-            if key.startswith(
-                "module."
-            ):
+            if key.startswith("module."):
 
-                key = key[
-                    len("module.") :
-                ]
+                new_key = key[
+                    len("module."):]
+                
+            else:
+
+                new_key = key
 
             cleaned_state_dict[
-                key
+                new_key
             ] = value
 
+
         # ----------------------------------------------------
-        # Load weights
+        # LOAD WEIGHTS
         # ----------------------------------------------------
 
         model.load_state_dict(
@@ -350,44 +412,62 @@ def load_model():
 
         model.eval()
 
-        print(
-            "Model loaded successfully."
-        )
 
         # ----------------------------------------------------
-        # Load support bank
+        # LOAD SUPPORT BANK
         # ----------------------------------------------------
 
         print(
-            "Loading support bank..."
+            "[SUPPORT] Loading support bank..."
         )
 
         bank = torch.load(
-            support_bank_path,
-            map_location=device
+            SUPPORT_BANK_PATH,
+            map_location=device,
+            weights_only=False
         )
+
 
         if isinstance(
             bank,
             dict
-        ) and "features" in bank:
+        ):
+
+            if "features" not in bank:
+
+                raise KeyError(
+                    "support_bank.pt does not contain "
+                    "'features'."
+                )
 
             support_feats = bank[
                 "features"
-            ].to(device)
+            ]
 
         else:
 
-            support_feats = bank.to(
-                device
-            )
+            support_feats = bank
+
+
+        support_feats = support_feats.to(
+            device
+        )
+
+
+        # ----------------------------------------------------
+        # FINAL
+        # ----------------------------------------------------
 
         print(
-            f"Support bank shape: "
+            "[MODEL] Model loaded successfully."
+        )
+
+        print(
+            f"[SUPPORT] Shape: "
             f"{support_feats.shape}"
         )
 
-        print("=" * 60)
+        print("=" * 70)
 
         return (
             model,
@@ -397,10 +477,11 @@ def load_model():
             None
         )
 
+
     except Exception as e:
 
         print(
-            "MODEL LOADING ERROR:"
+            "[MODEL] LOADING ERROR"
         )
 
         print(
@@ -417,7 +498,7 @@ def load_model():
 
 
 # ============================================================
-# LOAD EVERYTHING
+# LOAD MODEL
 # ============================================================
 
 (
@@ -433,18 +514,16 @@ def load_model():
 # HELPER FUNCTIONS
 # ============================================================
 
-def uncertainty_label(
-    uncertainty
-):
+def uncertainty_label(u):
 
-    if uncertainty < 0.15:
+    if u < 0.15:
 
         return (
             "LOW UNCERTAINTY",
             "#21c55d"
         )
 
-    elif uncertainty < 0.35:
+    elif u < 0.35:
 
         return (
             "MODERATE UNCERTAINTY",
@@ -463,7 +542,9 @@ def prediction_confidence(
     probabilities
 ):
 
-    predicted_index = probabilities.argmax()
+    predicted_index = int(
+        probabilities.argmax()
+    )
 
     return (
         float(
@@ -523,17 +604,6 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown(
-        """
-        **Model**
-
-        Model weights are automatically
-        downloaded from Hugging Face.
-        """
-    )
-
-    st.divider()
-
     st.caption(
         "Research/educational prototype — "
         "not a diagnostic device."
@@ -553,7 +623,7 @@ tab1, tab2 = st.tabs(
 
 
 # ============================================================
-# TAB 1 — DIAGNOSIS
+# DIAGNOSIS TAB
 # ============================================================
 
 with tab1:
@@ -575,24 +645,22 @@ with tab1:
             )
 
         st.info(
-            "The application downloads the following "
-            "files automatically from Hugging Face:"
+            "The application automatically checks "
+            "Hugging Face and downloads missing model files."
         )
 
         st.code(
             f"""
-Hugging Face Repository:
+Hugging Face repository:
 {HF_REPO_ID}
 
-Files:
+Required files:
+
+models/
 ├── {MODEL_FILENAME}
 └── {SUPPORT_FILENAME}
             """
         )
-
-    # --------------------------------------------------------
-    # MODEL SUCCESS
-    # --------------------------------------------------------
 
     else:
 
@@ -600,6 +668,11 @@ Files:
             f"Model loaded successfully • "
             f"Device: {device}"
         )
+
+
+        # ----------------------------------------------------
+        # FILE UPLOAD
+        # ----------------------------------------------------
 
         uploaded = st.file_uploader(
             "Upload a thyroid ultrasound image",
@@ -611,29 +684,45 @@ Files:
             ]
         )
 
+
         if uploaded is not None:
 
             # ------------------------------------------------
-            # READ IMAGE
+            # LOAD IMAGE
             # ------------------------------------------------
 
-            image = Image.open(
-                uploaded
-            ).convert(
-                "RGB"
-            )
+            try:
+
+                image = Image.open(
+                    uploaded
+                ).convert("RGB")
+
+            except Exception as e:
+
+                st.error(
+                    "Could not read the uploaded image."
+                )
+
+                st.code(
+                    str(e)
+                )
+
+                st.stop()
+
 
             original_width, original_height = (
                 image.size
             )
 
+
+            # ------------------------------------------------
+            # DISPLAY
+            # ------------------------------------------------
+
             col1, col2 = st.columns(
                 [1, 1.2]
             )
 
-            # ------------------------------------------------
-            # IMAGE
-            # ------------------------------------------------
 
             with col1:
 
@@ -649,144 +738,162 @@ Files:
                     f"{original_height}"
                 )
 
+
             # ------------------------------------------------
             # INFERENCE
             # ------------------------------------------------
 
-            with st.spinner(
-                "Running model inference..."
-            ):
-
-                try:
-
-                    tensor = (
-                        preprocess_single_image(
-                            image,
-                            cfg.IMAGE_SIZE
-                        ).to(device)
-                    )
-
-                    with torch.no_grad():
-
-                        result = (
-                            model.forward_inference(
-                                tensor,
-                                support_feats
-                            )
-                        )
-
-                    probabilities = (
-                        torch.softmax(
-                            result["logits"],
-                            dim=-1
-                        )
-                        .squeeze(0)
-                        .cpu()
-                        .numpy()
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        "Inference failed."
-                    )
-
-                    st.code(
-                        str(e)
-                    )
-
-                    st.stop()
-
-            # ------------------------------------------------
-            # PROBABILITIES
-            # ------------------------------------------------
-
-            benign_probability = (
-                float(
-                    probabilities[0]
-                ) * 100
-            )
-
-            malignant_probability = (
-                float(
-                    probabilities[1]
-                ) * 100
-            )
-
-            predicted_index = int(
-                probabilities.argmax()
-            )
-
-            # ------------------------------------------------
-            # PREDICTION
-            # ------------------------------------------------
-
-            if predicted_index == 1:
-
-                prediction = "MALIGNANT"
-
-                badge_class = (
-                    "badge-malignant"
-                )
-
-            else:
-
-                prediction = "BENIGN"
-
-                badge_class = (
-                    "badge-benign"
-                )
-
-            # ------------------------------------------------
-            # CONFIDENCE
-            # ------------------------------------------------
-
-            classification_confidence = (
-                prediction_confidence(
-                    probabilities
-                )
-            )
-
-            # ------------------------------------------------
-            # UNCERTAINTY
-            # ------------------------------------------------
-
-            u1 = float(
-                result["u1"]
-            )
-
-            u2 = float(
-                result["u2"]
-            )
-
-            uncertainty_text, uncertainty_color = (
-                uncertainty_label(
-                    u2
-                )
-            )
-
-            # ------------------------------------------------
-            # GRAPH
-            # ------------------------------------------------
-
-            graph_type = str(
-                result["graph_type"]
-            ).capitalize()
-
-            k_value = int(
-                result["k"]
-            )
-
-            # ------------------------------------------------
-            # RESULT COLUMN
-            # ------------------------------------------------
-
             with col2:
+
+                with st.spinner(
+                    "Running model inference..."
+                ):
+
+                    try:
+
+                        tensor = (
+                            preprocess_single_image(
+                                image,
+                                cfg.IMAGE_SIZE
+                            ).to(device)
+                        )
+
+
+                        with torch.inference_mode():
+
+                            result = (
+                                model.forward_inference(
+                                    tensor,
+                                    support_feats
+                                )
+                            )
+
+
+                        probabilities = (
+                            torch.softmax(
+                                result["logits"],
+                                dim=-1
+                            )
+                            .squeeze(0)
+                            .cpu()
+                            .numpy()
+                        )
+
+
+                    except Exception as e:
+
+                        st.error(
+                            "Inference failed."
+                        )
+
+                        st.code(
+                            str(e)
+                        )
+
+                        st.stop()
+
+
+                # ------------------------------------------------
+                # PROBABILITIES
+                # ------------------------------------------------
+
+                benign_probability = (
+                    float(
+                        probabilities[0]
+                    ) * 100
+                )
+
+                malignant_probability = (
+                    float(
+                        probabilities[1]
+                    ) * 100
+                )
+
+
+                predicted_index = int(
+                    probabilities.argmax()
+                )
+
+
+                # ------------------------------------------------
+                # PREDICTION
+                # ------------------------------------------------
+
+                if predicted_index == 1:
+
+                    prediction = (
+                        "MALIGNANT"
+                    )
+
+                    badge_class = (
+                        "badge-malignant"
+                    )
+
+                else:
+
+                    prediction = (
+                        "BENIGN"
+                    )
+
+                    badge_class = (
+                        "badge-benign"
+                    )
+
+
+                # ------------------------------------------------
+                # CONFIDENCE
+                # ------------------------------------------------
+
+                classification_confidence = (
+                    prediction_confidence(
+                        probabilities
+                    )
+                )
+
+
+                # ------------------------------------------------
+                # UNCERTAINTY
+                # ------------------------------------------------
+
+                u1 = float(
+                    result["u1"]
+                )
+
+                u2 = float(
+                    result["u2"]
+                )
+
+
+                uncertainty_text, uncertainty_color = (
+                    uncertainty_label(
+                        u2
+                    )
+                )
+
+
+                # ------------------------------------------------
+                # GRAPH
+                # ------------------------------------------------
+
+                graph_type = str(
+                    result["graph_type"]
+                ).capitalize()
+
+
+                k_value = int(
+                    result["k"]
+                )
+
+
+                # ------------------------------------------------
+                # PREDICTION CARD
+                # ------------------------------------------------
 
                 st.markdown(
                     '<div class="prediction-card">',
                     unsafe_allow_html=True
                 )
+
 
                 st.markdown(
                     f"""
@@ -800,16 +907,19 @@ Files:
                     unsafe_allow_html=True
                 )
 
+
                 st.write("")
 
-                # --------------------------------------------
+
+                # ------------------------------------------------
                 # MALIGNANT
-                # --------------------------------------------
+                # ------------------------------------------------
 
                 st.markdown(
                     f"**Malignant — "
                     f"{malignant_probability:.2f}%**"
                 )
+
 
                 st.markdown(
                     f"""
@@ -823,16 +933,19 @@ Files:
                     unsafe_allow_html=True
                 )
 
+
                 st.write("")
 
-                # --------------------------------------------
+
+                # ------------------------------------------------
                 # BENIGN
-                # --------------------------------------------
+                # ------------------------------------------------
 
                 st.markdown(
                     f"**Benign — "
                     f"{benign_probability:.2f}%**"
                 )
+
 
                 st.markdown(
                     f"""
@@ -846,18 +959,19 @@ Files:
                     unsafe_allow_html=True
                 )
 
+
                 st.markdown(
                     "</div>",
                     unsafe_allow_html=True
                 )
 
-                # --------------------------------------------
-                # METRICS
-                # --------------------------------------------
 
-                m1, m2, m3 = st.columns(
-                    3
-                )
+                # ------------------------------------------------
+                # METRICS
+                # ------------------------------------------------
+
+                m1, m2, m3 = st.columns(3)
+
 
                 m1.markdown(
                     f"""
@@ -874,6 +988,7 @@ Files:
                     unsafe_allow_html=True
                 )
 
+
                 m2.markdown(
                     f"""
                     <div class="metric-box">
@@ -888,6 +1003,7 @@ Files:
                     """,
                     unsafe_allow_html=True
                 )
+
 
                 m3.markdown(
                     f"""
@@ -906,14 +1022,20 @@ Files:
                     unsafe_allow_html=True
                 )
 
+
+                # ------------------------------------------------
+                # UNCERTAINTY MESSAGE
+                # ------------------------------------------------
+
                 st.info(
                     f"Model uncertainty: "
                     f"**{uncertainty_text}**"
                 )
 
-                # --------------------------------------------
+
+                # ------------------------------------------------
                 # ADVANCED DETAILS
-                # --------------------------------------------
+                # ------------------------------------------------
 
                 with st.expander(
                     "Advanced model details"
@@ -991,9 +1113,7 @@ Files:
 
                     st.code(
                         str(
-                            result[
-                                "logits"
-                            ]
+                            result["logits"]
                             .detach()
                             .cpu()
                             .numpy()
@@ -1002,7 +1122,7 @@ Files:
 
 
 # ============================================================
-# TAB 2 — MODEL PERFORMANCE
+# MODEL PERFORMANCE TAB
 # ============================================================
 
 with tab2:
@@ -1011,6 +1131,7 @@ with tab2:
         cfg.RESULTS_DIR,
         "metrics.json"
     )
+
 
     if not os.path.exists(
         metrics_path
@@ -1021,8 +1142,9 @@ with tab2:
         )
 
         st.code(
-            metrics_path
+            str(metrics_path)
         )
+
 
     else:
 
@@ -1037,17 +1159,18 @@ with tab2:
                     f
                 )
 
+
             st.subheader(
                 "Test Performance on TN5000"
             )
+
 
             # ------------------------------------------------
             # PRIMARY METRICS
             # ------------------------------------------------
 
-            cols = st.columns(
-                4
-            )
+            cols = st.columns(4)
+
 
             metric_keys = [
                 "accuracy",
@@ -1056,12 +1179,14 @@ with tab2:
                 "specificity"
             ]
 
+
             metric_labels = [
                 "Accuracy",
                 "Precision",
                 "Sensitivity",
                 "Specificity"
             ]
+
 
             for col, key, label in zip(
                 cols,
@@ -1076,13 +1201,13 @@ with tab2:
                         f"{metrics[key] * 100:.2f}%"
                     )
 
+
             # ------------------------------------------------
             # SECONDARY METRICS
             # ------------------------------------------------
 
-            cols2 = st.columns(
-                3
-            )
+            cols2 = st.columns(3)
+
 
             secondary_keys = [
                 "f1_score",
@@ -1090,11 +1215,13 @@ with tab2:
                 "pr_auc"
             ]
 
+
             secondary_labels = [
                 "F1-Score",
                 "ROC-AUC",
                 "PR-AUC"
             ]
+
 
             for col, key, label in zip(
                 cols2,
@@ -1121,9 +1248,6 @@ with tab2:
                         value
                     )
 
-            # ------------------------------------------------
-            # SAMPLE COUNT
-            # ------------------------------------------------
 
             if "n_samples" in metrics:
 
@@ -1132,7 +1256,9 @@ with tab2:
                     f"{metrics['n_samples']}"
                 )
 
+
             st.divider()
+
 
             # ------------------------------------------------
             # VISUALIZATIONS
@@ -1141,6 +1267,7 @@ with tab2:
             st.subheader(
                 "Evaluation Visualizations"
             )
+
 
             img_files = {
 
@@ -1157,9 +1284,9 @@ with tab2:
                     "calibration.png"
             }
 
-            img_cols = st.columns(
-                2
-            )
+
+            img_cols = st.columns(2)
+
 
             for i, (
                 title,
@@ -1173,6 +1300,7 @@ with tab2:
                     filename
                 )
 
+
                 with img_cols[
                     i % 2
                 ]:
@@ -1180,6 +1308,7 @@ with tab2:
                     st.markdown(
                         f"### {title}"
                     )
+
 
                     if os.path.exists(
                         file_path
@@ -1195,6 +1324,7 @@ with tab2:
                         st.caption(
                             "Not generated."
                         )
+
 
         except Exception as e:
 
