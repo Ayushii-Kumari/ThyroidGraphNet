@@ -23,16 +23,15 @@ jobs:
         run: |
           docker build \
             --platform linux/amd64 \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/thyroid-graph-net:latest \
+            -t ayushiikumari/thyroid-graph-net:latest \
             .
 
       - name: Push Docker image
         run: |
-          docker push \
-            ${{ secrets.DOCKERHUB_USERNAME }}/thyroid-graph-net:latest
+          docker push ayushiikumari/thyroid-graph-net:latest
 
       - name: Deployment Summary
         run: |
           echo "Docker image built successfully."
           echo "Docker image:"
-          echo "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroid-graph-net:latest"
+          echo "docker.io/ayushiikumari/thyroid-graph-net:latest"

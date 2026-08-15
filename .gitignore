@@ -1,3 +1,6 @@
+.git
+.github
+
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,7 +12,9 @@ myenv/
 
 data/
 *.zip
+*.rar
 
+models/
 models/*.pth
 models/*.pt
 models/*.pth.tar
@@ -18,8 +23,8 @@ models/*.pth.tar
 
 .streamlit/
 
-.DS_Store
-Thumbs.db
-
 .vscode/
 .idea/
+
+.DS_Store
+Thumbs.db

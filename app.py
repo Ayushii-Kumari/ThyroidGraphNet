@@ -4,7 +4,6 @@ import json
 import torch
 import streamlit as st
 from PIL import Image
-from huggingface_hub import hf_hub_download
 
 from config import Config
 from utils.preprocessing import preprocess_single_image
@@ -78,12 +77,12 @@ st.markdown(
 )
 
 
-HF_REPO_ID = "AyushiiKumarii/thyroidnet"
+@st.cache_resource(show_spinner=False)
+def load_model():
 
+    cfg = Config()
 
-def get_model_files(cfg):
-
-    os.makedirs(cfg.MODEL_DIR, exist_ok=True)
+    device = torch.device(cfg.DEVICE)
 
     model_path = os.path.join(
         cfg.MODEL_DIR,
@@ -96,52 +95,24 @@ def get_model_files(cfg):
     )
 
     if not os.path.exists(model_path):
-
-        st.info("Preparing the trained model for the first run...")
-
-        model_downloaded = hf_hub_download(
-            repo_id=HF_REPO_ID,
-            filename="thyroidnet_best.pth",
-            local_dir=cfg.MODEL_DIR,
-            local_dir_use_symlinks=False
+        return (
+            None,
+            None,
+            cfg,
+            device,
+            f"Model not found: {model_path}"
         )
-
-        if model_downloaded != model_path:
-            if os.path.exists(model_downloaded):
-                os.replace(
-                    model_downloaded,
-                    model_path
-                )
 
     if not os.path.exists(support_bank_path):
-
-        support_downloaded = hf_hub_download(
-            repo_id=HF_REPO_ID,
-            filename="support_bank.pt",
-            local_dir=cfg.MODEL_DIR,
-            local_dir_use_symlinks=False
+        return (
+            None,
+            None,
+            cfg,
+            device,
+            f"Support bank not found: {support_bank_path}"
         )
 
-        if support_downloaded != support_bank_path:
-            if os.path.exists(support_downloaded):
-                os.replace(
-                    support_downloaded,
-                    support_bank_path
-                )
-
-    return model_path, support_bank_path
-
-
-@st.cache_resource(show_spinner=False)
-def load_model():
-
-    cfg = Config()
-
-    device = torch.device(cfg.DEVICE)
-
     try:
-
-        model_path, support_bank_path = get_model_files(cfg)
 
         model = ThyroidNet(
             cfg
@@ -149,7 +120,8 @@ def load_model():
 
         checkpoint = torch.load(
             model_path,
-            map_location=device
+            map_location=device,
+            weights_only=False
         )
 
         if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
@@ -163,7 +135,8 @@ def load_model():
 
         bank = torch.load(
             support_bank_path,
-            map_location=device
+            map_location=device,
+            weights_only=False
         )
 
         support_feats = bank["features"].to(device)
@@ -281,16 +254,14 @@ with tab1:
             st.code(model_error)
 
         st.info(
-            "The application could not load the trained model "
-            "from the Hugging Face repository."
+            "The Docker image does not contain the trained model."
         )
 
         st.code(
             """
-AyushiiKumarii/thyroidnet
-
-thyroidnet_best.pth
-support_bank.pt
+/app/models/
+├── thyroidnet_best.pth
+└── support_bank.pt
             """
         )
 
@@ -370,12 +341,9 @@ support_bank.pt
             )
 
             if predicted_index == 1:
-
                 prediction = "MALIGNANT"
                 badge_class = "badge-malignant"
-
             else:
-
                 prediction = "BENIGN"
                 badge_class = "badge-benign"
 
@@ -419,8 +387,7 @@ support_bank.pt
                 st.write("")
 
                 st.markdown(
-                    f"**Malignant — "
-                    f"{malignant_probability:.2f}%**"
+                    f"**Malignant — {malignant_probability:.2f}%**"
                 )
 
                 st.markdown(
@@ -438,8 +405,7 @@ support_bank.pt
                 st.write("")
 
                 st.markdown(
-                    f"**Benign — "
-                    f"{benign_probability:.2f}%**"
+                    f"**Benign — {benign_probability:.2f}%**"
                 )
 
                 st.markdown(
@@ -517,8 +483,7 @@ support_bank.pt
                 )
 
                 st.info(
-                    f"Model uncertainty: "
-                    f"**{uncertainty_text}**"
+                    f"Model uncertainty: **{uncertainty_text}**"
                 )
 
                 with st.expander(
@@ -526,8 +491,7 @@ support_bank.pt
                 ):
 
                     st.write(
-                        f"**Prediction:** "
-                        f"{prediction}"
+                        f"**Prediction:** {prediction}"
                     )
 
                     st.write(
@@ -536,8 +500,7 @@ support_bank.pt
                     )
 
                     st.write(
-                        f"**CNN–Transformer fusion "
-                        f"uncertainty (U₁):** "
+                        f"**CNN–Transformer fusion uncertainty (U₁):** "
                         f"{u1:.6f}"
                     )
 
@@ -547,13 +510,11 @@ support_bank.pt
                     )
 
                     st.write(
-                        f"**Graph type:** "
-                        f"{graph_type}"
+                        f"**Graph type:** {graph_type}"
                     )
 
                     st.write(
-                        f"**Graph neighbours (k):** "
-                        f"{k_value}"
+                        f"**Graph neighbours (k):** {k_value}"
                     )
 
                     st.write(
@@ -591,9 +552,7 @@ support_bank.pt
                         f"{tensor.std().item():.4f}"
                     )
 
-                    st.write(
-                        "**Raw logits:**"
-                    )
+                    st.write("**Raw logits:**")
 
                     st.code(
                         str(
@@ -612,16 +571,14 @@ with tab2:
         "metrics.json"
     )
 
-    if not os.path.exists(
-        metrics_path
-    ):
+    if not os.path.exists(metrics_path):
 
         st.warning(
             "TN5000 evaluation results were not found."
         )
 
         st.code(
-            f"{metrics_path}"
+            metrics_path
         )
 
     else:
@@ -691,13 +648,10 @@ with tab2:
                 if key in metrics:
 
                     if key == "f1_score":
-
                         value = (
                             f"{metrics[key] * 100:.2f}%"
                         )
-
                     else:
-
                         value = (
                             f"{metrics[key]:.4f}"
                         )
@@ -710,8 +664,7 @@ with tab2:
             if "n_samples" in metrics:
 
                 st.caption(
-                    f"Test samples: "
-                    f"{metrics['n_samples']}"
+                    f"Test samples: {metrics['n_samples']}"
                 )
 
             st.divider()
@@ -729,10 +682,7 @@ with tab2:
 
             img_cols = st.columns(2)
 
-            for i, (
-                title,
-                filename
-            ) in enumerate(
+            for i, (title, filename) in enumerate(
                 img_files.items()
             ):
 
@@ -747,9 +697,7 @@ with tab2:
                         f"### {title}"
                     )
 
-                    if os.path.exists(
-                        file_path
-                    ):
+                    if os.path.exists(file_path):
 
                         st.image(
                             file_path,
