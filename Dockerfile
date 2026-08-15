@@ -19,7 +19,6 @@ COPY evaluate.py .
 COPY test.py .
 
 COPY utils ./utils
-COPY models ./models
 COPY results ./results
 
 EXPOSE 8501
