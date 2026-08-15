@@ -16,7 +16,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
 st.markdown(
     """
     <style>
@@ -71,13 +70,20 @@ st.markdown(
         background-color: #21c55d;
         height: 100%;
     }
+
+    .info-box {
+        padding: 1rem;
+        border-radius: 12px;
+        background-color: #1a1f2e;
+        border: 1px solid #2d3348;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource
 def load_model():
 
     cfg = Config()
@@ -114,29 +120,23 @@ def load_model():
 
     try:
 
-        model = ThyroidNet(
-            cfg
-        ).to(device)
+        model = ThyroidNet(cfg).to(device)
 
         checkpoint = torch.load(
             model_path,
-            map_location=device,
-            weights_only=False
+            map_location=device
         )
 
         if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
             checkpoint = checkpoint["state_dict"]
 
-        model.load_state_dict(
-            checkpoint
-        )
+        model.load_state_dict(checkpoint)
 
         model.eval()
 
         bank = torch.load(
             support_bank_path,
-            map_location=device,
-            weights_only=False
+            map_location=device
         )
 
         support_feats = bank["features"].to(device)
@@ -254,7 +254,7 @@ with tab1:
             st.code(model_error)
 
         st.info(
-            "The Docker image does not contain the trained model."
+            "The Docker image does not contain the trained model files."
         )
 
         st.code(
@@ -387,7 +387,8 @@ with tab1:
                 st.write("")
 
                 st.markdown(
-                    f"**Malignant — {malignant_probability:.2f}%**"
+                    f"**Malignant — "
+                    f"{malignant_probability:.2f}%**"
                 )
 
                 st.markdown(
@@ -405,7 +406,8 @@ with tab1:
                 st.write("")
 
                 st.markdown(
-                    f"**Benign — {benign_probability:.2f}%**"
+                    f"**Benign — "
+                    f"{benign_probability:.2f}%**"
                 )
 
                 st.markdown(
@@ -483,7 +485,8 @@ with tab1:
                 )
 
                 st.info(
-                    f"Model uncertainty: **{uncertainty_text}**"
+                    f"Model uncertainty: "
+                    f"**{uncertainty_text}**"
                 )
 
                 with st.expander(
@@ -577,9 +580,7 @@ with tab2:
             "TN5000 evaluation results were not found."
         )
 
-        st.code(
-            metrics_path
-        )
+        st.code(metrics_path)
 
     else:
 
@@ -648,10 +649,13 @@ with tab2:
                 if key in metrics:
 
                     if key == "f1_score":
+
                         value = (
                             f"{metrics[key] * 100:.2f}%"
                         )
+
                     else:
+
                         value = (
                             f"{metrics[key]:.4f}"
                         )
@@ -716,9 +720,7 @@ with tab2:
                 "Could not read the evaluation results."
             )
 
-            st.code(
-                str(e)
-            )
+            st.code(str(e))
 
 
 st.divider()
@@ -733,3 +735,4 @@ st.caption(
     "Research/educational prototype — "
     "not a diagnostic device."
 )
+
