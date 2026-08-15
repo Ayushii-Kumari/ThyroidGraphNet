@@ -1,4 +1,4 @@
-name: Build Push and Deploy
+name: Build and Push Docker Image
 
 on:
   push:
@@ -6,25 +6,19 @@ on:
       - main
 
 jobs:
-  build-push-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # 2. Login to Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-
-      # 3. Build Docker image
       - name: Build Docker image
         run: |
           docker build \
@@ -32,49 +26,13 @@ jobs:
             -t ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest \
             .
 
-
-      # 4. Push Docker image to Docker Hub
       - name: Push Docker image
         run: |
           docker push \
             ${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
 
-
-      # 5. Deploy the existing Render service
-      - name: Deploy to Render
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          DOCKER_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest
-          RENDER_SERVICE_ID: srv-da08l9e1egvs7385m1l0
+      - name: Deployment Summary
         run: |
-          echo "Deploying image:"
-          echo "$DOCKER_IMAGE"
-
-          RESPONSE=$(curl -sS \
-            -X POST \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-            -H "Accept: application/json" \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{\"imagePath\":\"$DOCKER_IMAGE\"}")
-
-          echo "Render response:"
-          echo "$RESPONSE"
-
-          if echo "$RESPONSE" | grep -q '"id"'; then
-            echo "Render deployment triggered successfully."
-          else
-            echo "Render deployment failed."
-            exit 1
-          fi
-
-
-      # 6. Show public URL
-      - name: Show public URL
-        run: |
-          echo "=========================================="
-          echo "THYROIDNET DEPLOYMENT"
-          echo "=========================================="
-          echo "Public URL:"
-          echo "https://thyroidnet.onrender.com"
-          echo "=========================================="
+          echo "Docker image built successfully."
+          echo "Docker image:"
+          echo "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/thyroidnet:latest"
