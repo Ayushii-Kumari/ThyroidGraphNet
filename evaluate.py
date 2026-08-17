@@ -59,7 +59,8 @@ def plot_confusion_matrix(cm, class_names, save_path):
 
     fig.savefig(
         save_path,
-        dpi=150
+        dpi=300,
+        bbox_inches="tight"
     )
 
     plt.close(fig)
@@ -97,7 +98,8 @@ def plot_roc(y_true, y_scores, auc, save_path):
 
     plt.savefig(
         save_path,
-        dpi=150
+        dpi=300,
+        bbox_inches="tight"
     )
 
     plt.close()
@@ -129,78 +131,186 @@ def plot_pr(y_true, y_scores, ap, save_path):
 
     plt.savefig(
         save_path,
-        dpi=150
+        dpi=300,
+        bbox_inches="tight"
     )
 
     plt.close()
 
 
-def plot_calibration(
-    y_true,
-    y_scores,
+def plot_reliability_diagram(
+    y_correct,
+    y_confidence,
     save_path,
     n_bins=10
 ):
 
-    bins = np.linspace(
-        0,
-        1,
+    y_confidence = np.asarray(
+        y_confidence,
+        dtype=float
+    )
+
+    y_correct = np.asarray(
+        y_correct,
+        dtype=float
+    )
+
+    y_confidence = np.clip(
+        y_confidence,
+        0.0,
+        1.0
+    )
+
+    bin_edges = np.linspace(
+        0.0,
+        1.0,
         n_bins + 1
     )
 
-    bin_ids = np.digitize(
-        y_scores,
-        bins
-    ) - 1
-
-    bin_acc = []
-    bin_conf = []
+    bin_confidence = []
+    bin_accuracy = []
+    bin_counts = []
 
     for b in range(n_bins):
 
-        mask = bin_ids == b
+        if b == n_bins - 1:
 
-        if mask.sum() > 0:
-
-            bin_acc.append(
-                y_true[mask].mean()
+            mask = (
+                (y_confidence >= bin_edges[b]) &
+                (y_confidence <= bin_edges[b + 1])
             )
 
-            bin_conf.append(
-                y_scores[mask].mean()
+        else:
+
+            mask = (
+                (y_confidence >= bin_edges[b]) &
+                (y_confidence < bin_edges[b + 1])
             )
 
-    plt.figure(figsize=(5, 4))
+        count = int(mask.sum())
 
-    plt.plot(
+        if count > 0:
+
+            mean_conf = float(
+                np.mean(
+                    y_confidence[mask]
+                )
+            )
+
+            accuracy = float(
+                np.mean(
+                    y_correct[mask]
+                )
+            )
+
+            bin_confidence.append(
+                mean_conf
+            )
+
+            bin_accuracy.append(
+                accuracy
+            )
+
+            bin_counts.append(
+                count
+            )
+
+    total_samples = len(
+        y_confidence
+    )
+
+    ece = 0.0
+
+    for conf, acc, count in zip(
+        bin_confidence,
+        bin_accuracy,
+        bin_counts
+    ):
+
+        ece += (
+            count / total_samples
+        ) * abs(
+            acc - conf
+        )
+
+    fig, ax = plt.subplots(
+        figsize=(6, 5)
+    )
+
+    ax.plot(
         [0, 1],
         [0, 1],
         linestyle="--",
+        linewidth=1.5,
         label="Perfect calibration"
     )
 
-    plt.plot(
-        bin_conf,
-        bin_acc,
+    ax.plot(
+        bin_confidence,
+        bin_accuracy,
         marker="o",
-        label="Model"
+        linewidth=2,
+        markersize=6,
+        label="ThyroidGraphNet"
     )
 
-    plt.xlabel("Predicted probability")
-    plt.ylabel("Observed frequency")
+    ax.set_xlim(
+        0,
+        1
+    )
 
-    plt.title("Calibration Curve — TN5000 Test")
+    ax.set_ylim(
+        0,
+        1
+    )
 
-    plt.legend()
+    ax.set_xlabel(
+        "Mean predicted confidence"
+    )
 
-    plt.tight_layout()
+    ax.set_ylabel(
+        "Empirical accuracy"
+    )
 
-    plt.savefig(
+    ax.set_title(
+        "Reliability Diagram — TN5000 Test",
+        fontweight="bold"
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    ax.legend(
+        loc="upper left"
+    )
+
+    ax.text(
+        0.97,
+        0.05,
+        f"ECE = {ece:.4f}",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=10,
+        bbox=dict(
+            boxstyle="round,pad=0.3",
+            facecolor="white",
+            edgecolor="0.7"
+        )
+    )
+
+    fig.tight_layout()
+
+    fig.savefig(
         save_path,
-        dpi=150
+        dpi=300,
+        bbox_inches="tight"
     )
 
-    plt.close()
+    plt.close(fig)
+
+    return ece
 
 
 def main():
@@ -296,6 +406,9 @@ def main():
     y_pred = []
     y_score = []
 
+    y_confidence = []
+    y_correct = []
+
     u1_list = []
     u2_list = []
 
@@ -319,16 +432,42 @@ def main():
                 dim=-1
             ).squeeze(0)
 
-            y_true.append(
-                labels.item()
-            )
+            true_label = labels.item()
 
-            y_pred.append(
+            predicted_label = (
                 probs.argmax().item()
             )
 
-            y_score.append(
+            class_1_probability = (
                 probs[1].item()
+            )
+
+            confidence = (
+                probs.max().item()
+            )
+
+            correct = int(
+                predicted_label == true_label
+            )
+
+            y_true.append(
+                true_label
+            )
+
+            y_pred.append(
+                predicted_label
+            )
+
+            y_score.append(
+                class_1_probability
+            )
+
+            y_confidence.append(
+                confidence
+            )
+
+            y_correct.append(
+                correct
             )
 
             u1_list.append(
@@ -349,6 +488,14 @@ def main():
 
     y_score = np.array(
         y_score
+    )
+
+    y_confidence = np.array(
+        y_confidence
+    )
+
+    y_correct = np.array(
+        y_correct
     )
 
     cm = confusion_matrix(
@@ -397,6 +544,26 @@ def main():
         y_true,
         y_score
     )
+
+
+    os.makedirs(
+        cfg.RESULTS_DIR,
+        exist_ok=True
+    )
+
+
+    reliability_path = os.path.join(
+        cfg.RESULTS_DIR,
+        "reliability_diagram.png"
+    )
+
+    ece = plot_reliability_diagram(
+        y_correct,
+        y_confidence,
+        reliability_path,
+        n_bins=10
+    )
+
 
     metrics = {
 
@@ -447,13 +614,14 @@ def main():
         "mean_u2": round(
             float(np.mean(u2_list)),
             4
+        ),
+
+        # NEW
+        "ece": round(
+            float(ece),
+            4
         )
     }
-
-    os.makedirs(
-        cfg.RESULTS_DIR,
-        exist_ok=True
-    )
 
     metrics_path = os.path.join(
         cfg.RESULTS_DIR,
@@ -500,15 +668,6 @@ def main():
         )
     )
 
-    plot_calibration(
-        y_true,
-        y_score,
-        os.path.join(
-            cfg.RESULTS_DIR,
-            "calibration.png"
-        )
-    )
-
     print("\n")
     print("=" * 60)
     print("MODEL PERFORMANCE — TN5000 TEST")
@@ -550,6 +709,10 @@ def main():
         f"Mean U2        : {np.mean(u2_list):.4f}"
     )
 
+    print(
+        f"ECE            : {ece:.4f}"
+    )
+
     print("=" * 60)
 
     print(
@@ -557,6 +720,11 @@ def main():
     )
 
     print(cm)
+
+    print(
+        f"\nReliability diagram saved to:\n"
+        f"{reliability_path}"
+    )
 
     print(
         f"\nResults saved to: "
