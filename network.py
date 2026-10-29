@@ -8,9 +8,10 @@ from utils.graph import build_adaptive_knn_adjacency, build_graph_with_support, 
 
 
 class ConvNeXtBranch(nn.Module):
-    def __init__(self, model_name, feature_dim, pretrained=True):
+    def __init__(self, model_name, feature_dim, pretrained=True, drop_path=0.1):
         super().__init__()
-        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)
+        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0,
+                                          drop_path_rate=drop_path)
         self.proj = nn.Linear(self.backbone.num_features, feature_dim)
 
     def forward(self, x):
@@ -18,9 +19,10 @@ class ConvNeXtBranch(nn.Module):
 
 
 class SwinBranch(nn.Module):
-    def __init__(self, model_name, feature_dim, pretrained=True):
+    def __init__(self, model_name, feature_dim, pretrained=True, drop_path=0.1):
         super().__init__()
-        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)
+        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0,
+                                          drop_path_rate=drop_path)
         self.proj = nn.Linear(self.backbone.num_features, feature_dim)
 
     def forward(self, x):
@@ -59,9 +61,10 @@ class ThyroidNet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
+        dp = getattr(cfg, "DROP_PATH", 0.1)
 
-        self.cnn_branch = ConvNeXtBranch(cfg.CONVNEXT_MODEL, cfg.FEATURE_DIM)
-        self.swin_branch = SwinBranch(cfg.SWIN_MODEL, cfg.FEATURE_DIM)
+        self.cnn_branch = ConvNeXtBranch(cfg.CONVNEXT_MODEL, cfg.FEATURE_DIM, drop_path=dp)
+        self.swin_branch = SwinBranch(cfg.SWIN_MODEL, cfg.FEATURE_DIM, drop_path=dp)
 
         self.u1_head = MCHead(cfg.FEATURE_DIM * 2, cfg.NUM_CLASSES, cfg.MC_DROPOUT_P)
         self.fusion = UGGF(cfg.FEATURE_DIM, hidden_dim=256)
@@ -82,6 +85,7 @@ class ThyroidNet(nn.Module):
         return fused, u1, gate
 
     def forward_train_batch(self, x):
+        """Original batch-graph forward (kept for reference / ablation)."""
         cnn_feat = self.cnn_branch(x)
         trans_feat = self.swin_branch(x)
         concat = torch.cat([cnn_feat, trans_feat], dim=-1)
@@ -104,6 +108,37 @@ class ThyroidNet(nn.Module):
         return {
             "logits": logits, "u1_logits": u1_logits, "u2_logits": u2_logits,
             "u1": u1, "u2": u2, "gate": gate, "k_per_node": k_per_node, "fused": fused,
+        }
+
+    def forward_train_bank(self, x, bank):
+        """Training forward that builds EXACTLY the inference graph for every sample:
+        query node + its k nearest neighbours from a (detached) feature bank, k set by U2."""
+        cnn_feat = self.cnn_branch(x)
+        trans_feat = self.swin_branch(x)
+        concat = torch.cat([cnn_feat, trans_feat], dim=-1)
+
+        u1_logits = self.u1_head(concat)
+        _, u1 = mc_dropout_predict(self.u1_head, concat, self.cfg.MC_DROPOUT_SAMPLES)
+
+        fused, gate = self.fusion(cnn_feat, trans_feat, u1.detach())
+
+        u2_logits = self.u2_head(fused)
+        _, u2 = mc_dropout_predict(self.u2_head, fused, self.cfg.MC_DROPOUT_SAMPLES)
+
+        logits_list, ks = [], []
+        for i in range(fused.size(0)):
+            node_feats, adjacency, k = build_graph_with_support(
+                fused[i:i + 1], u2[i].detach(), bank, self.cfg.K_MIN, self.cfg.K_MAX
+            )
+            graph_out = self.gat(node_feats, adjacency)
+            logits_list.append(self.classifier(graph_out[0:1]))
+            ks.append(k)
+
+        return {
+            "logits": torch.cat(logits_list, dim=0),
+            "u1_logits": u1_logits, "u2_logits": u2_logits,
+            "u1": u1, "u2": u2, "gate": gate,
+            "k_per_node": torch.tensor(ks), "fused": fused,
         }
 
     @torch.no_grad()
