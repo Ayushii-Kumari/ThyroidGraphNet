@@ -6,6 +6,7 @@ timm==1.0.15
 streamlit
 Pillow
 numpy
+pandas
 matplotlib
 scikit-learn
 tqdm

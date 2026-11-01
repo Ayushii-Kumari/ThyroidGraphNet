@@ -19,10 +19,10 @@ class ConvNeXtBranch(nn.Module):
 
 
 class SwinBranch(nn.Module):
-    def __init__(self, model_name, feature_dim, pretrained=True, drop_path=0.1):
+    def __init__(self, model_name, feature_dim, pretrained=True, drop_path=0.1, **kwargs):
         super().__init__()
         self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0,
-                                          drop_path_rate=drop_path)
+                                          drop_path_rate=drop_path, **kwargs)
         self.proj = nn.Linear(self.backbone.num_features, feature_dim)
 
     def forward(self, x):
@@ -64,7 +64,8 @@ class ThyroidNet(nn.Module):
         dp = getattr(cfg, "DROP_PATH", 0.1)
 
         self.cnn_branch = ConvNeXtBranch(cfg.CONVNEXT_MODEL, cfg.FEATURE_DIM, drop_path=dp)
-        self.swin_branch = SwinBranch(cfg.SWIN_MODEL, cfg.FEATURE_DIM, drop_path=dp)
+        self.swin_branch = SwinBranch(cfg.SWIN_MODEL, cfg.FEATURE_DIM, drop_path=dp,
+                                      **getattr(cfg, "SWIN_KWARGS", {}))
 
         self.u1_head = MCHead(cfg.FEATURE_DIM * 2, cfg.NUM_CLASSES, cfg.MC_DROPOUT_P)
         self.fusion = UGGF(cfg.FEATURE_DIM, hidden_dim=256)

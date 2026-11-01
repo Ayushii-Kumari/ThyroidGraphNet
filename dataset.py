@@ -1,4 +1,5 @@
 import os
+import random
 import xml.etree.ElementTree as ET
 
 from PIL import Image
@@ -10,9 +11,15 @@ CLASS_NAMES = ["benign", "malignant"]
 
 class ThyroidDataset(Dataset):
 
-    def __init__(self, samples, transform=None):
+    def __init__(self, samples, transform=None, roi_margin=None, roi_jitter=False):
         self.samples = samples
         self.transform = transform
+        self.roi_margin = roi_margin
+        self.roi_jitter = roi_jitter
+        self.boxes = (
+            [read_xml_bbox(annotation_path(p)) for p, _ in samples]
+            if roi_margin is not None else None
+        )
 
     def __len__(self):
         return len(self.samples)
@@ -23,10 +30,49 @@ class ThyroidDataset(Dataset):
 
         image = Image.open(image_path).convert("RGB")
 
+        if self.boxes is not None and self.boxes[idx] is not None:
+            image = crop_roi(image, self.boxes[idx], self.roi_margin, self.roi_jitter)
+
         if self.transform:
             image = self.transform(image)
 
         return image, label, image_path
+
+
+def annotation_path(image_path):
+    root = os.path.dirname(os.path.dirname(image_path))
+    image_id = os.path.splitext(os.path.basename(image_path))[0]
+    return os.path.join(root, "Annotations", image_id + ".xml")
+
+
+def read_xml_bbox(xml_path):
+    """Pascal-VOC box of the first object as (xmin, ymin, xmax, ymax), or None."""
+    box = ET.parse(xml_path).getroot().find("object/bndbox")
+    if box is None:
+        return None
+    try:
+        return tuple(float(box.find(k).text) for k in ("xmin", "ymin", "xmax", "ymax"))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def crop_roi(image, box, margin, jitter=False):
+    """Square crop around the nodule box with `margin` of context on each side.
+    With jitter, margin and centre are randomised (training augmentation)."""
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    side = max(x1 - x0, y1 - y0)
+    if jitter:
+        margin = margin * random.uniform(0.5, 1.5)
+        cx += random.uniform(-0.1, 0.1) * side
+        cy += random.uniform(-0.1, 0.1) * side
+    half = max(side * (1 + 2 * margin) / 2, 16)
+    w, h = image.size
+    left, top = max(cx - half, 0), max(cy - half, 0)
+    right, bottom = min(cx + half, w), min(cy + half, h)
+    if right - left < 8 or bottom - top < 8:
+        return image
+    return image.crop((int(left), int(top), int(right), int(bottom)))
 
 
 def read_xml_label(xml_path):

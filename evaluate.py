@@ -1,5 +1,7 @@
 import os
+import glob
 import json
+import argparse
 import numpy as np
 import pandas as pd
 import torch
@@ -10,7 +12,7 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import (confusion_matrix, roc_auc_score, average_precision_score,
                              roc_curve, precision_recall_curve)
 
-from config import Config
+from config import PROFILES
 from dataset import ThyroidDataset, load_tn5000_split
 from utils.preprocessing import get_eval_transform
 from network import ThyroidNet
@@ -37,34 +39,69 @@ def ece_score(correct, conf, bins=10):
     return e, xs, ys
 
 
-def main():
-    cfg = Config()
-    device = torch.device(cfg.DEVICE)
-    os.makedirs(cfg.RESULTS_DIR, exist_ok=True)
-    os.makedirs(os.path.join(cfg.RESULTS_DIR, "preds"), exist_ok=True)
-
-    model = ThyroidNet(cfg).to(device)
-    model.load_state_dict(torch.load(os.path.join(cfg.MODEL_DIR, "thyroidnet_best.pth"), map_location=device))
-    model.eval()
-    bank = torch.load(os.path.join(cfg.MODEL_DIR, "support_bank.pt"), map_location=device)["features"].to(device)
-    thr = json.load(open(os.path.join(cfg.RESULTS_DIR, "threshold.json")))["threshold"] \
-        if os.path.exists(os.path.join(cfg.RESULTS_DIR, "threshold.json")) else 0.5
-
-    test_files = load_tn5000_split(cfg.TN5000_DIR, "test")
-    ds = ThyroidDataset(test_files, get_eval_transform(cfg.IMAGE_SIZE))
-    print(f"TN5000 test images: {len(ds)} | threshold {thr:.3f} | TTA {USE_TTA}")
-
+def predict(models, ds, device, tta):
+    """Mean malignant probability over models x TTA views, plus mean u1/u2."""
     ids, y, s, u1s, u2s = [], [], [], [], []
     with torch.no_grad():
         for img, lab, path in DataLoader(ds, batch_size=1, shuffle=False, num_workers=0):
             img = img.to(device)
-            outs = [model.forward_inference(img, bank)]
-            if USE_TTA:
-                outs.append(model.forward_inference(torch.flip(img, dims=[3]), bank))
-            prob = np.mean([torch.softmax(o["logits"], -1)[0, 1].item() for o in outs])
-            ids.append(path[0]); y.append(lab.item()); s.append(prob)
+            views = [img, torch.flip(img, dims=[3])] if tta else [img]
+            outs = [m.forward_inference(v, bank) for m, bank in models for v in views]
+            s.append(np.mean([torch.softmax(o["logits"], -1)[0, 1].item() for o in outs]))
             u1s.append(np.mean([o["u1"] for o in outs])); u2s.append(np.mean([o["u2"] for o in outs]))
-    y, s = np.array(y), np.array(s)
+            ids.append(path[0]); y.append(lab.item())
+    return ids, np.array(y), np.array(s), u1s, u2s
+
+
+def pick_threshold(y, s):
+    """Accuracy-maximising threshold on VALIDATION data; ties go to the one nearest 0.5."""
+    cands = np.unique(np.concatenate([s, [0.5]]))
+    accs = np.array([((s >= t).astype(int) == y).mean() for t in cands])
+    best = cands[accs >= accs.max() - 1e-12]
+    return float(best[np.argmin(np.abs(best - 0.5))])
+
+
+def load_models(cfg, ckpt_dirs, device):
+    models = []
+    for d in ckpt_dirs:
+        model = ThyroidNet(cfg).to(device)
+        model.load_state_dict(torch.load(os.path.join(d, "thyroidnet_best.pth"), map_location=device))
+        model.eval()
+        bank = torch.load(os.path.join(d, "support_bank.pt"), map_location=device)["features"].to(device)
+        models.append((model, bank))
+    return models
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=list(PROFILES), default="base")
+    parser.add_argument("--ckpts", nargs="*", help="checkpoint dirs to ensemble (default: all of the profile)")
+    args = parser.parse_args()
+
+    cfg = PROFILES[args.profile]()
+    if args.profile == "base":
+        ckpt_dirs = args.ckpts or [cfg.MODEL_DIR]
+    else:
+        ckpt_dirs = args.ckpts or sorted(glob.glob(os.path.join(cfg.MODEL_DIR, args.profile, "seed*")))
+        cfg.RESULTS_DIR = os.path.join(cfg.RESULTS_DIR, args.profile)
+    if not ckpt_dirs:
+        raise FileNotFoundError("No checkpoints found; run train.py first.")
+    device = torch.device(cfg.DEVICE)
+    os.makedirs(cfg.RESULTS_DIR, exist_ok=True)
+    os.makedirs(os.path.join(cfg.RESULTS_DIR, "preds"), exist_ok=True)
+
+    models = load_models(cfg, ckpt_dirs, device)
+    roi = cfg.ROI_MARGIN if cfg.USE_ROI else None
+    tfm = get_eval_transform(cfg.IMAGE_SIZE)
+    val_ds = ThyroidDataset(load_tn5000_split(cfg.TN5000_DIR, "val"), tfm, roi)
+    ds = ThyroidDataset(load_tn5000_split(cfg.TN5000_DIR, "test"), tfm, roi)
+
+    _, yv, sv, _, _ = predict(models, val_ds, device, USE_TTA)
+    thr = pick_threshold(yv, sv)
+    print(f"Models: {len(models)} | ROI {cfg.USE_ROI} | TTA {USE_TTA} | "
+          f"val acc @ chosen threshold {thr:.3f}: {((sv >= thr).astype(int) == yv).mean():.4f}")
+
+    ids, y, s, u1s, u2s = predict(models, ds, device, USE_TTA)
 
     pd.DataFrame({"image_id": ids, "y_true": y, "prob_malignant": s, "u1": u1s, "u2": u2s}).to_csv(
         os.path.join(cfg.RESULTS_DIR, "preds", "ThyroidGraphNet.csv"), index=False)
@@ -79,7 +116,7 @@ def main():
            **{k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in m.items()},
            "roc_auc": round(float(auc), 4), "pr_auc": round(float(ap), 4),
            "mean_u1": round(float(np.mean(u1s)), 4), "mean_u2": round(float(np.mean(u2s)), 4),
-           "ece": round(float(ece), 4), "tta": USE_TTA,
+           "ece": round(float(ece), 4), "tta": USE_TTA, "n_models": len(models), "roi_crop": cfg.USE_ROI,
            "at_threshold_0.5": {k: (round(float(v), 4) if isinstance(v, float) else v) for k, v in m05.items()}}
     json.dump(out, open(os.path.join(cfg.RESULTS_DIR, "metrics.json"), "w"), indent=4)
 
